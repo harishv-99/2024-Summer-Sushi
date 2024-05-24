@@ -1,5 +1,7 @@
 package edu.ftcsushi.robots.sushi.subsystems;
 
+import com.acmerobotics.roadrunner.HolonomicController;
+import com.acmerobotics.roadrunner.Pose2d;
 import com.acmerobotics.roadrunner.PoseVelocity2d;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
@@ -11,18 +13,24 @@ import com.qualcomm.robotcore.hardware.VoltageSensor;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+import org.firstinspires.ftc.teamcode.MecanumDrive;
 
 import edu.ftcsushi.robots.sushi.Constants;
 
 public class DriveTrainSubsystem {
-    private DcMotorEx motorBackLeft;
-    private DcMotorEx motorFrontLeft;
-    private DcMotorEx motorBackRight;
-    private DcMotorEx motorFrontRight;
-    private IMU imu;
+    private final DcMotorEx motorBackLeft;
+    private final DcMotorEx motorFrontLeft;
+    private final DcMotorEx motorBackRight;
+    private final DcMotorEx motorFrontRight;
+    private final IMU imu;
 
-    private VoltageSensor voltageSensor;
-    private Telemetry telemetry;
+    private final VoltageSensor voltageSensor;
+    private final Telemetry telemetry;
+
+    private final MecanumDrive mecanumDrive;
+    private final HolonomicController holonomicController;
+
+    private PoseVelocity2d movePrior;
 
     public DriveTrainSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         // Configure the motors
@@ -45,6 +53,18 @@ public class DriveTrainSubsystem {
         // Configure the voltage sensor
         voltageSensor = hardwareMap.get(VoltageSensor.class, "Control Hub");
         this.telemetry = telemetry;
+
+        Pose2d beginPose = new Pose2d(0, 0, 0);
+        mecanumDrive = new MecanumDrive(hardwareMap, beginPose);
+
+        holonomicController = new HolonomicController(
+                MecanumDrive.PARAMS.axialGain,
+                MecanumDrive.PARAMS.lateralGain,
+                MecanumDrive.PARAMS.headingGain,
+                MecanumDrive.PARAMS.axialVelGain,
+                MecanumDrive.PARAMS.lateralVelGain,
+                MecanumDrive.PARAMS.headingVelGain
+        );
     }
 
     public double getHeading() {
@@ -64,9 +84,33 @@ public class DriveTrainSubsystem {
         return (voltageSensor.getVoltage() < Constants.VOLTAGE_SENSOR_OBSTACLE_THRESHOLD);
     }
 
+    public void updatePoseEstimate() {
+        movePrior = mecanumDrive.updatePoseEstimate();
+    }
+
+    public Pose2d getPose() {
+        return mecanumDrive.pose;
+    }
+
+    public PoseVelocity2d getMovePrior() {
+        return movePrior;
+    }
+
+    public HolonomicController getHolonomicController() {
+        return holonomicController;
+    }
+
     public void drive(PoseVelocity2d powers) {
-        double x = powers.linearVel.x;
-        double y = powers.linearVel.y;
+        mecanumDrive.setDrivePowers(powers);
+
+        telemetry.addData("x", mecanumDrive.pose.position.x);
+        telemetry.addData("y", mecanumDrive.pose.position.y);
+        telemetry.addData("head", mecanumDrive.pose.heading);
+    }
+
+    public void drive2(PoseVelocity2d powers) {
+        double x = -powers.linearVel.y;
+        double y = powers.linearVel.x;
         double rx = powers.angVel;
 
         // Denominator is the largest motor power (absolute value) or 1
@@ -77,11 +121,6 @@ public class DriveTrainSubsystem {
         double backLeftPower = (y - x + rx) / denominator;
         double frontRightPower = (y - x - rx) / denominator;
         double backRightPower = (y + x - rx) / denominator;
-
-        telemetry.addData("fl", frontLeftPower);
-        telemetry.addData("bl", backLeftPower);
-        telemetry.addData("fr", frontRightPower);
-        telemetry.addData("br", backRightPower);
 
         motorFrontLeft.setPower(frontLeftPower);
         motorBackLeft.setPower(backLeftPower);
